@@ -111,11 +111,10 @@ function submitSignup() {
         if (xhr.readyState === 4) {
             var response = JSON.parse(xhr.responseText);
             if (response.status === 'success') {
-                successDiv.innerText = 'Account created successfully!';
+                successDiv.innerHTML = 'Account created successfully! <br><br><a href="login.php" style="display:inline-block; padding:10px 20px; background:#173161; color:white; text-decoration:none; border-radius:6px;">Go to Login</a>';
                 successDiv.style.display = 'block';
-                document.getElementById('apikey-display').style.display = 'block';
-                document.getElementById('apikey-value').innerText = response.data.apikey;
-            } else {
+                document.getElementById('signup-form').style.display = 'none';
+        } else {
                 errorDiv.innerText = response.data;
                 errorDiv.style.display = 'block';
             }

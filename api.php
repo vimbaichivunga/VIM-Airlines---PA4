@@ -60,6 +60,9 @@ switch ($data["type"]) {
     case "GetFavourites":  handleGetFavourites($conn, $data);  break;
     case "RemoveFavourite":handleRemoveFavourite($conn, $data);break;
     case "ClearFavourites":handleClearFavourites($conn, $data);break;
+    case "BookFlight":     handleBookFlight($conn, $data);     break;
+    case "GetBookings":    handleGetBookings($conn, $data);    break;
+    case "CancelBooking":  handleCancelBooking($conn, $data);  break;
     default: respond(400, "error", "Invalid type");
 }
 
@@ -255,5 +258,205 @@ function handleClearFavourites($conn, $data) {
     mysqli_stmt_execute($stmt);
     mysqli_stmt_close($stmt);
     respond(200, "success", "All favourites cleared");
+}
+
+// ============================================================
+// HAVERSINE DISTANCE (km)
+// ============================================================
+function haversineDistance($lat1, $lon1, $lat2, $lon2) {
+    $R    = 6377;
+    $phi1 = deg2rad($lat1);
+    $phi2 = deg2rad($lat2);
+    $dphi = deg2rad($lat2 - $lat1);
+    $dlam = deg2rad($lon2 - $lon1);
+
+    $hav   = sin($dphi/2)**2 + cos($phi1)*cos($phi2)*sin($dlam/2)**2;
+    $theta = 2 * asin(sqrt($hav));
+    return $R * $theta;
+}
+
+// ============================================================
+// FLIGHT TIME (minutes)
+// ============================================================
+function calcFlightTime($distance, $vmax, $cmax, $seats) {
+    // Cruise speed
+    $vc = $vmax * (1 - 0.2 * $cmax / ($cmax + 80 * $seats));
+
+    // Climb/descent base time
+    if ($seats > 300)      $tbase = 20;
+    elseif ($seats > 200)  $tbase = 15;
+    elseif ($seats > 100)  $tbase = 10;
+    elseif ($seats > 50)   $tbase = 7;
+    else                   $tbase = 5;
+
+    $k               = 0.01;
+    $tclimb_descent  = $tbase * (1 - exp(-$k * $distance));
+    $ttotal          = ($distance / $vc) * 60 + $tclimb_descent + 15;
+    return round($ttotal, 2);
+}
+
+// ============================================================
+// BOOK FLIGHT
+// ============================================================
+function handleBookFlight($conn, $data) {
+    if (empty($data["apikey"]) || !isValidApiKey($conn, $data["apikey"]))
+        respond(401, "error", "Invalid or missing API key");
+
+    $required = ["plane_id", "departure_airport", "arrival_airport", "departure_date", "passengers"];
+    foreach ($required as $f) {
+        if (empty($data[$f])) respond(400, "error", "Missing field: $f");
+    }
+
+    $userId    = getUserId($conn, $data["apikey"]);
+    $planeId   = (int)$data["plane_id"];
+    $depCode   = trim($data["departure_airport"]);
+    $arrCode   = trim($data["arrival_airport"]);
+    $depDate   = trim($data["departure_date"]);
+    $passengers = (int)$data["passengers"];
+    $isReturn  = !empty($data["is_return"]) && $data["is_return"];
+    $retDate   = !empty($data["return_date"]) ? trim($data["return_date"]) : null;
+
+    // Get plane details
+    $stmt = mysqli_prepare($conn, "SELECT * FROM planes WHERE id = ?");
+    mysqli_stmt_bind_param($stmt, "i", $planeId);
+    mysqli_stmt_execute($stmt);
+    $plane = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+    mysqli_stmt_close($stmt);
+    if (!$plane) respond(404, "error", "Plane not found");
+
+    // Get airport coordinates
+    $stmt = mysqli_prepare($conn, "SELECT code, latitude, longitude FROM airports WHERE code = ? OR code = ?");
+    mysqli_stmt_bind_param($stmt, "ss", $depCode, $arrCode);
+    mysqli_stmt_execute($stmt);
+    $result    = mysqli_stmt_get_result($stmt);
+    $airports  = [];
+    while ($row = mysqli_fetch_assoc($result)) $airports[$row["code"]] = $row;
+    mysqli_stmt_close($stmt);
+
+    if (!isset($airports[$depCode]) || !isset($airports[$arrCode]))
+        respond(404, "error", "Airport not found");
+
+    $dep = $airports[$depCode];
+    $arr = $airports[$arrCode];
+
+    // Calculate distance and flight time
+    $distance   = haversineDistance($dep["latitude"], $dep["longitude"], $arr["latitude"], $arr["longitude"]);
+    $flightTime = calcFlightTime($distance, $plane["max_speed_kmh"], $plane["max_cargo_kg"], $plane["seats"]);
+
+    // Book outbound flight
+    $bookingIds = [];
+    $flightId   = getOrCreateFlight($conn, $planeId, $depCode, $arrCode, $depDate, $flightTime, $distance);
+    $bookingId  = createBooking($conn, $flightId, $userId, $passengers, $plane["seats"]);
+    if (!$bookingId) respond(400, "error", "Outbound flight is full. Choose a different date or plane.");
+    $bookingIds[] = $bookingId;
+
+    // Book return flight if requested
+    if ($isReturn && $retDate) {
+        $retFlightId  = getOrCreateFlight($conn, $planeId, $arrCode, $depCode, $retDate, $flightTime, $distance);
+        $retBookingId = createBooking($conn, $retFlightId, $userId, $passengers, $plane["seats"]);
+        if (!$retBookingId) respond(400, "error", "Return flight is full. Choose a different return date.");
+        $bookingIds[] = $retBookingId;
+    }
+
+    respond(200, "success", [
+        "message"     => "Flight booked successfully",
+        "booking_ids" => $bookingIds,
+        "distance_km" => round($distance, 2),
+        "flight_time_mins" => $flightTime
+    ]);
+}
+
+function getOrCreateFlight($conn, $planeId, $depCode, $arrCode, $depDate, $flightTime, $distance) {
+    // Check if flight already exists
+    $stmt = mysqli_prepare($conn,
+        "SELECT id FROM flights WHERE plane_id=? AND departure_airport=? AND arrival_airport=? AND departure_date=?"
+    );
+    mysqli_stmt_bind_param($stmt, "isss", $planeId, $depCode, $arrCode, $depDate);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $row    = mysqli_fetch_assoc($result);
+    mysqli_stmt_close($stmt);
+    if ($row) return $row["id"];
+
+    // Create new flight
+    $stmt = mysqli_prepare($conn,
+        "INSERT INTO flights (plane_id, departure_airport, arrival_airport, departure_date, flight_time, distance) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    mysqli_stmt_bind_param($stmt, "isssdd", $planeId, $depCode, $arrCode, $depDate, $flightTime, $distance);
+    mysqli_stmt_execute($stmt);
+    $id = mysqli_insert_id($conn);
+    mysqli_stmt_close($stmt);
+    return $id;
+}
+
+function createBooking($conn, $flightId, $userId, $passengers, $seatCapacity) {
+    // Check total passengers already booked
+    $stmt = mysqli_prepare($conn, "SELECT COALESCE(SUM(passengers),0) as total FROM bookings WHERE flight_id=?");
+    mysqli_stmt_bind_param($stmt, "i", $flightId);
+    mysqli_stmt_execute($stmt);
+    $row   = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+    $total = (int)$row["total"];
+    mysqli_stmt_close($stmt);
+
+    if ($total + $passengers > $seatCapacity) return null;
+
+    $stmt = mysqli_prepare($conn, "INSERT INTO bookings (flight_id, user_id, passengers) VALUES (?, ?, ?)");
+    mysqli_stmt_bind_param($stmt, "iii", $flightId, $userId, $passengers);
+    mysqli_stmt_execute($stmt);
+    $id = mysqli_insert_id($conn);
+    mysqli_stmt_close($stmt);
+    return $id;
+}
+
+// ============================================================
+// GET BOOKINGS
+// ============================================================
+function handleGetBookings($conn, $data) {
+    if (empty($data["apikey"]) || !isValidApiKey($conn, $data["apikey"]))
+        respond(401, "error", "Invalid or missing API key");
+
+    $userId = getUserId($conn, $data["apikey"]);
+
+    $stmt = mysqli_prepare($conn,
+        "SELECT b.id as booking_id, b.passengers,
+                f.id as flight_id, f.departure_airport, f.arrival_airport,
+                f.departure_date, f.flight_time, f.distance,
+                p.manufacturer, p.model, p.seats
+         FROM bookings b
+         JOIN flights f ON b.flight_id = f.id
+         JOIN planes p  ON f.plane_id  = p.id
+         WHERE b.user_id = ?
+         ORDER BY f.departure_date ASC"
+    );
+    mysqli_stmt_bind_param($stmt, "i", $userId);
+    mysqli_stmt_execute($stmt);
+    $result   = mysqli_stmt_get_result($stmt);
+    $bookings = [];
+    while ($row = mysqli_fetch_assoc($result)) $bookings[] = $row;
+    mysqli_stmt_close($stmt);
+
+    respond(200, "success", $bookings);
+}
+
+// ============================================================
+// CANCEL BOOKING
+// ============================================================
+function handleCancelBooking($conn, $data) {
+    if (empty($data["apikey"]) || !isValidApiKey($conn, $data["apikey"]))
+        respond(401, "error", "Invalid or missing API key");
+    if (empty($data["booking_id"])) respond(400, "error", "Missing booking_id");
+
+    $userId    = getUserId($conn, $data["apikey"]);
+    $bookingId = (int)$data["booking_id"];
+
+    // Make sure booking belongs to this user
+    $stmt = mysqli_prepare($conn, "DELETE FROM bookings WHERE id = ? AND user_id = ?");
+    mysqli_stmt_bind_param($stmt, "ii", $bookingId, $userId);
+    mysqli_stmt_execute($stmt);
+    $affected = mysqli_stmt_affected_rows($stmt);
+    mysqli_stmt_close($stmt);
+
+    if ($affected === 0) respond(404, "error", "Booking not found");
+    respond(200, "success", "Booking cancelled");
 }
 ?>

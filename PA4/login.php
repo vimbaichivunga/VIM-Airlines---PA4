@@ -155,7 +155,7 @@
         </div>
 
         <div class="readme-link">
-            <a href="readme.txt" target="_blank">📄 ReadMe / Help</a>
+            <a href="readme.html" target="_blank">📄 ReadMe / Help</a>
         </div>
     </div>
 </div>

@@ -155,7 +155,7 @@ input[type="text"]:has(+ select) {
     display: none;
     position: absolute;
     top: 100%; left: 0; right: 0;
-    background: #5e7eb6;
+    background: white;
     border: 1px solid #a0b4d6;
     border-top: none;
     border-radius: 0 0 6px 6px;
@@ -177,4 +177,4 @@ input[type="text"]:has(+ select) {
 }
 
 #plane-suggestions li:last-child { border-bottom: none; }
-#plane-suggestions li:hover { background: #5e7eb6; color: #1e3c72; }
+#plane-suggestions li:hover { background: #e8f0fe; color: #173161;  }
