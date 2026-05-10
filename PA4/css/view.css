@@ -1,0 +1,132 @@
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: linear-gradient(to right, #173161, #2a5298);
+}
+
+/* ── Loader ── */
+#loader {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(1, 7, 14, 0.8);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    gap: 18px;
+    color: #fff;
+}
+
+#loader img {
+    width: 80px;
+    height: 80px;
+}
+
+#loader span {
+    font-size: 1rem;
+    color: #fff;
+}
+
+/* ── Back button ── */
+.back-btn {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 8px 16px;
+    background-color: #1e3c72;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: 0.3s;
+}
+
+.back-btn:hover {
+    background-color: #16325c;
+}
+
+/* ── View container ── */
+.view-container {
+    margin-top: 40px;
+}
+
+/* ── Main card ── */
+.view-card {
+    background: white;
+    border-radius: 14px;
+    border: 2px solid #173161;
+    box-shadow: 0 4px 20px rgba(0, 180, 180, 0.35);
+    padding: 30px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+}
+
+.view-card:hover {
+    transform: translateY(-5px);
+    transition: 0.3s ease;
+}
+
+/* ── Image section ── */
+.view-image img {
+    width: 100%;
+    border-radius: 12px;
+}
+
+/* ── Details section ── */
+.view-details h1 {
+    margin: 0 0 10px;
+    color: #173161;
+}
+
+/* ── Description ── */
+.description {
+    margin: 15px 0 25px 0;
+    font-weight: normal;
+    line-height: 1.6;
+    color: #4a5568;
+}
+
+/* ── Specs grid ── */
+.spec-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+    margin-bottom: 24px;
+}
+
+/* ── Individual spec boxes ── */
+.spec-box {
+    background: #f4f6fa;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+}
+
+.spec-box h4 {
+    margin: 0 0 5px;
+    color: #1e3c72;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.spec-box p {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #2d3748;
+}
+
+/* ── Favourite button ── */
+#view-fav-btn {
+    padding: 11px 28px;
+    border-radius: 9px;
+    border: none;
+    background: #1e3c72;
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+#view-fav-btn:hover { background: #16325c; }
+#view-fav-btn.fav-active { background: #6b1a1a; color: #ffaaaa; }
